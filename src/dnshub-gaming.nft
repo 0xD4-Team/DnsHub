@@ -1,0 +1,27 @@
+#!/usr/bin/env nft -f
+# dnshub-gaming.nft - DSCP priority tagging.
+#
+# SCOPE: this marks traffic ORIGINATING FROM THIS HOST ONLY. The Windows
+# gamer PCs on 192.168.1.0/24 are separate devices and cannot be marked from
+# here; that needs an agent on each client, or DSCP set by the game/router.
+#
+# Combined with CAKE's `diffserv3` mode, bulk downloads get deprioritised in
+# this host's own transmit queue so they cannot starve a co-resident session.
+table inet dnshub_gaming {
+    chain output {
+        type route hook output priority 0; policy accept;
+
+        # Bulk web/download traffic -> AF23 (DSCP 18)
+        tcp dport { 80, 443 } ct state new \
+            meta mark set 0x12 counter comment "bulk http -> AF23"
+
+        # Explicitly deprioritise it at the DSCP layer.
+        meta mark 0x12 ip dscp set af23
+
+        # Real-time game + voice: mark EF (DSCP 46) so it is treated as
+        # highest priority by the local CAKE qdisc.
+        udp dport { 3074, 3478, 3479, 5222, 5223, 7000, 8000, 8080, 8443, 27015, 27016, 27017, 27018, 27019, 27020, 27036, 27037 } \
+            meta priority set 0 \
+            ip dscp set ef counter comment "game/voice -> EF (46)"
+    }
+}

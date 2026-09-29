@@ -1,0 +1,12 @@
+[Unit]
+Description=dnshub WireGuard safety guard (LAN must not route into tunnel)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/dnshub-wg-guard check
+
+[Install]
+WantedBy=multi-user.target

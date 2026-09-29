@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# dnshub WireGuard safety guard. Run by dnshub-wg-guard.service as root
+# (unconfined - deliberately NOT a wg-quick hook, because Ubuntu ships an
+# AppArmor profile for wg-quick that only allows wg/ip/nft/sysctl/coreutils,
+# so any hook exec of anything else fails the tunnel with status 126).
+#
+# Check: if wg0 is up, the LAN must still be reachable through the physical
+# NIC. The 2026-09-28 outage was exactly this: a peer AllowedIPs with the LAN
+# behind it made the kernel route 192.168.1.0/24 into wg0 and the box
+# vanished from its own subnet while still answering ARP.
+set -u
+LOG=/var/log/dnshub/wg-guard.log
+NIC=$(ip route | awk '/^default/{print $5; exit}')
+[ -n "$NIC" ] || NIC=wlp5s0
+GW=$(ip route | awk '/^default/{print $3; exit}')
+say() { printf '%s %s\n' "$(date -Is)" "$*" >> "$LOG"; }
+
+case "${1:-check}" in
+  check)
+    if ! ip link show wg0 >/dev/null 2>&1; then
+      say "check: wg0 not present - nothing to verify, OK"
+      exit 0
+    fi
+    say "check: wg0 present - verifying LAN via $NIC (GW $GW)"
+    if ip route get "$GW" 2>/dev/null | grep -q "^$GW.*dev $NIC"; then
+      peers=$(wg show wg0 peers 2>/dev/null | wc -l)
+      say "  LAN OK via $NIC; peers=$peers"
+      exit 0
+    fi
+    say "  BROKEN: LAN route does not use $NIC - tearing down and disabling"
+    wg-quick down wg0 2>/dev/null
+    ip link delete wg0 2>/dev/null
+    systemctl disable --now wg-quick@wg0 2>/dev/null || true
+    say "  teardown done; wg-quick@wg0 disabled"
+    exit 1
+    ;;
+  *) echo "usage: dnshub-wg-guard [check]" >&2; exit 2;;
+esac
