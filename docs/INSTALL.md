@@ -89,8 +89,8 @@ list):
 | 51820 | `wg-quick@wg0` | WireGuard (optional part) | keys |
 
 ```sh
-sudo ./src/dnshub status    # one screen for everything
-sudo ./src/dnshub token     # panel token
+dnshub status    # one screen for everything; install put `dnshub` on your PATH
+dnshub token     # panel token (it escalates to root itself, no `sudo` needed)
 ```
 
 ---
@@ -165,14 +165,14 @@ back up anything you want to keep.)
 
 | Symptom | What to do |
 |---|---|
-| `dig @<box> google.com` fails | `sudo ./src/dnshub status` → is `dnshub-resolver` active? `sudo systemctl status dnshub-resolver` |
-| "This server can't be reached" in a browser UI | the panel needs the token first — `sudo ./src/dnshub token` |
+| `dig @<box> google.com` fails | `dnshub status` → is `dnshub-resolver` active? `sudo systemctl status dnshub-resolver` |
+| "This server can't be reached" in a browser UI | the panel needs the token first — `dnshub token` |
 | DoT/DoH "not trusted" on a device | you skipped the CA step, or the box IP changed after CA generation |
-| Everything off after a power cut | that is by design: run `sudo ./src/dnshub on` once it is back, or enable autostart with `systemctl enable` per unit |
-| Blocklist looks empty | `sudo ./src/dnshub blocklist refresh`, then `sudo ./src/dnshub dns doubleclick.net` |
-| sudoers error visible in logs | re-run `sudo ./src/dnshub install` after updates |
+| Everything off after a power cut | that is by design: run `dnshub on` once it is back, or enable autostart with `systemctl enable` per unit |
+| Blocklist looks empty | `dnshub blocklist refresh`, then `dnshub dns doubleclick.net` |
+| sudoers error visible in logs | re-run `dnshub install` after updates |
 
-The panel's **Doctor** tab and `sudo ./src/dnshub doctor` check most of these
+The panel's **Doctor** tab and `dnshub doctor` check most of these
 for you and propose a fix.
 
 ---

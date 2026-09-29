@@ -1,0 +1,453 @@
+#!/usr/bin/env python3
+"""
+dnshub-ctl - the only thing on this host that may touch systemd or Docker.
+
+The control web UI runs as the unprivileged `mostfa` user and has to be able to
+start and stop services. Giving it that power directly would mean either a root
+daemon with an HTTP listener on the LAN, or a setuid binary, and both are far
+worse than the problem. Instead the UI shells out to this script through a
+narrow sudoers drop-in:
+
+    mostfa ALL=(root) NOPASSWD: /usr/local/sbin/dnshub-ctl <action> <unit>
+
+Everything a caller could name is matched against the UNITS table below with an
+exact string comparison. A unit name is not a parameter anywhere: it is only
+ever used as a dict key that has already resolved, so a caller cannot smuggle
+`; rm -rf /`, an absolute path, or a template instance like `cron@evil` through
+the unit argument. The sudoers rule lists the script without arguments, so any
+arguments at all are accepted here and validated here - the two checks together
+are what make this safe.
+
+Actions: status | start | stop | restart | enable | disable | logs | doctor
+"""
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+# --- the surface area ---------------------------------------------------------
+# Every entry here is a root-privileged action reachable from a web page on the
+# LAN, so each one states its KIND explicitly. dnshub runs a mix of systemd
+# units and Docker containers, and a control plane that assumes one kind shows
+# a permanently red, unfixable card for the other: unbound is a container, not
+# a unit. An earlier version of this file listed it as "unbound.service", which
+# does not exist and never will, so its card read "not installed" forever.
+UNITS: dict[str, dict] = {
+    "resolver":  {"kind": "systemd", "unit": "dnshub-resolver.service",
+                  "label": "DNS Resolver", "group": "core",
+                  "desc": "53 UDP/TCP - the whole point of the box"},
+    "blocklist": {"kind": "systemd", "unit": "dnshub-blocklist.service",
+                  "label": "Blocklist Updater", "group": "core",
+                  "desc": "rebuilds the compiled list every 12h"},
+    "control":   {"kind": "systemd", "unit": "dnshub-control.service",
+                  "label": "Control Panel", "group": "core",
+                  "desc": "this page, on port 8081"},
+    "files":     {"kind": "systemd", "unit": "dnshub-files.service",
+                  "label": "File Hub", "group": "core",
+                  "desc": "8082 - upload, download, manage files on the box"},
+    "privacy":   {"kind": "systemd", "unit": "dnshub-privacy.service",
+                  "label": "Private DNS", "group": "network",
+                  "desc": "DoT :853 + DoH :443 with your own CA - the last leg stays encrypted"},
+    "fail2ban":  {"kind": "systemd", "unit": "fail2ban.service",
+                  "label": "Abuse Blocker", "group": "core",
+                  "desc": "bans hosts that flood the resolver"},
+    "chrony":    {"kind": "systemd", "unit": "chrony.service",
+                  "label": "Clock Sync", "group": "core",
+                  "desc": "DNSSEC refuses to validate without a sane clock"},
+    "unbound":   {"kind": "container", "unit": "dnshub-unbound",
+                  "label": "Local Recursive Cache", "group": "core",
+                  "desc": "container; opt-in upstream for full sovereignty"},
+    "wireguard": {"kind": "systemd", "unit": "wg-quick@wg0.service",
+                  "label": "WireGuard VPN", "group": "network",
+                  "desc": "51820 UDP - private access to the LAN from anywhere"},
+    "netdata":   {"kind": "systemd", "unit": "netdata.service",
+                  "label": "Netdata Metrics", "group": "monitor",
+                  "desc": "19999 - per-second CPU, RAM, disk, network"},
+}
+
+# Actions that change state, and actions that only read. The web UI renders
+# buttons from this so it cannot offer a verb the helper will refuse.
+READ_ONLY = {"status", "logs", "doctor"}
+MUTATING = {"start", "stop", "restart", "enable", "disable"}
+
+LOG_LINES = 200
+DEV_DIR = os.environ.get("DNSHUB_DEV_DIR",
+                          os.path.dirname(os.path.abspath(__file__)))
+
+
+def die(msg: str, code: int = 2) -> "None":
+    print(f"dnshub-ctl: {msg}", file=sys.stderr)
+    sys.exit(code)
+
+
+def run(argv: list[str], timeout: int = 60) -> subprocess.CompletedProcess:
+    """
+    Run a command as root with nothing attached to a terminal.
+
+    stdin is DEVNULL on purpose: systemctl can fall back to asking for a polkit
+    password, and a web request with no user attached to it would then hang
+    until the request times out rather than failing with a clear error.
+    """
+    try:
+        return subprocess.run(argv, capture_output=True, text=True,
+                              timeout=timeout, stdin=subprocess.DEVNULL)
+    except subprocess.TimeoutExpired:
+        die(f"{argv[0]}: timed out after {timeout}s", 4)
+    except FileNotFoundError:
+        die(f"{argv[0]} is not installed on this host", 5)
+
+
+# ---------------------------------------------------------------------------
+# systemd
+# ---------------------------------------------------------------------------
+def systemctl(unit: str, *args: str, timeout: int = 60) -> subprocess.CompletedProcess:
+    return run(["systemctl", "--no-pager", "--no-legend", *args, unit], timeout)
+
+
+def systemd_state(unit: str) -> dict:
+    """
+    Resolve one unit's full state.
+
+    `systemctl show` is the only call that gives active + enabled + a start
+    timestamp in one round trip; calling is-active and is-enabled separately is
+    two forks per unit and they can disagree with each other.
+    """
+    p = systemctl(unit, "show",
+                  "-p", "ActiveState,SubState,UnitFileState,MainPID,"
+                        "ExecMainStartTimestamp,NRestarts", timeout=15)
+    if p.returncode != 0 or not p.stdout.strip():
+        return {"exists": False}
+    out: dict[str, str] = {}
+    for line in p.stdout.splitlines():
+        if "=" in line:
+            k, v = line.split("=", 1)
+            out[k] = v
+    return {
+        "exists": True,
+        "kind": "systemd",
+        "active": out.get("ActiveState", "unknown"),
+        "sub": out.get("SubState", ""),
+        "enabled": out.get("UnitFileState", "unknown"),
+        "pid": out.get("MainPID", "0"),
+        "restarts": out.get("NRestarts", "0"),
+        "since": out.get("ExecMainStartTimestamp", ""),
+    }
+
+
+# ---------------------------------------------------------------------------
+# docker
+# ---------------------------------------------------------------------------
+def container_state(name: str) -> dict:
+    """
+    A container's equivalent of systemd's state, in the same shape so the UI
+    does not need to branch.
+
+    `docker inspect` returns the whole config including environment and
+    mounts, which can hold secrets, so only named fields are pulled out and
+    re-emitted. The restart policy is what "enabled" means for a container:
+    `no` means it will not come back after a reboot, which is exactly the
+    distinction the Enable/Disable buttons are trying to express.
+    """
+    p = run(["docker", "inspect", "--format",
+             "{{.State.Status}}|{{.State.Running}}|{{.State.Health.Status}}"
+             "|{{.State.StartedAt}}|{{.HostConfig.RestartPolicy.Name}}"
+             "|{{.State.ExitCode}}",
+             name], timeout=20)
+    text = p.stdout.strip()
+    if p.returncode != 0 or not text or "|" not in text:
+        # A template error prints a Go error, not a pipe-separated row. Treat
+        # that as "cannot tell" rather than "not installed", so a future field
+        # rename shows up as a question mark instead of a red card.
+        return ({"exists": False, "error": (p.stderr or p.stdout).strip()[:200]}
+                if p.returncode != 0 else {"exists": False})
+    parts = text.split("|")
+    parts += [""] * (6 - len(parts))
+    status, running, health, started, restart, exitcode = parts[:6]
+    # docker's "running" is the honest answer; a container can be running and
+    # still unhealthy, and the UI should be able to show that. A deliberately
+    # stopped container is "exited" with exit code 0 and is NOT a failure - the
+    # exit code is only interesting for distinguishing a crash.
+    return {
+        "exists": True,
+        "kind": "container",
+        "active": "active" if status == "running" else status,
+        "sub": status,
+        "health": health if health and health != "<no value>" else "",
+        "enabled": restart if restart else "no",
+        "since": started,
+        "pid": "",
+        "restarts": "0",
+        "exit_code": exitcode,
+    }
+
+
+def state_of(spec: dict) -> dict:
+    if spec["kind"] == "container":
+        return container_state(spec["unit"])
+    return systemd_state(spec["unit"])
+
+
+# ---------------------------------------------------------------------------
+# logs
+# ---------------------------------------------------------------------------
+def do_logs(spec: dict, stream: str) -> int:
+    """
+    Print a log stream to our own stdout, which the web UI reads verbatim.
+
+    Every branch here must WRITE the captured output. run() uses
+    capture_output=True, so a child that just inherits stdout produces nothing
+    the caller can see. An earlier version called run() for journalctl and
+    returned, which "worked" - it printed zero lines and the UI showed an empty
+    log with no error anywhere. The container branch was the only one that
+    wrote p.stdout out, which is why unbound's log was readable and the
+    resolver's was not, from identical code.
+    """
+    if stream not in ("service", "kernel", "abuse", "blocklist", "query"):
+        die("stream must be service|kernel|abuse|blocklist|query")
+    if stream == "service":
+        if spec["kind"] == "container":
+            p = run(["docker", "logs", "--tail", str(LOG_LINES),
+                     "--timestamps", spec["unit"]], timeout=40)
+            # docker writes container stderr to its own stderr, so the two have
+            # to be stitched back together or half the log is missing.
+            if p.stderr.strip():
+                sys.stderr.write(p.stderr)
+                sys.stderr.flush()
+            sys.stdout.write(p.stdout)
+            if not (p.stdout.strip() or p.stderr.strip()):
+                print(f"(no log output for {spec['unit']})")
+            return 0
+        p = run(["journalctl", "-u", spec["unit"], "-n", str(LOG_LINES),
+                 "--no-pager", "-o", "short-iso"], timeout=40)
+        sys.stdout.write(p.stdout or "")
+        if not p.stdout.strip():
+            print(f"(no journal entries for {spec['unit']}; it may not have "
+                  f"logged anything since it started, or the unit name is wrong)")
+        return 0
+    if stream == "kernel":
+        p = run(["journalctl", "-k", "-n", str(LOG_LINES), "--no-pager",
+                 "-o", "short-iso"], timeout=40)
+        sys.stdout.write(p.stdout or "")
+        if not p.stdout.strip():
+            print("(kernel ring buffer is empty)")
+        return 0
+    if stream == "abuse":
+        return tail_file(Path("/var/log/dnshub/abuse.log"),
+                         "(no abuse log yet - nothing has tripped the limiter)")
+    if stream == "query":
+        return tail_file(Path(DEV_DIR) / "dns_queries.log",
+                         "(no query log yet)")
+    return tail_file(Path(DEV_DIR) / "blocklist-update.log",
+                     "(no blocklist update log yet - the service has not run)")
+
+
+def tail_file(path: Path, empty: str) -> int:
+    if not path.exists():
+        print(empty)
+        return 0
+    try:
+        text = path.read_text(errors="replace")
+    except PermissionError:
+        print(f"{path} exists but is not readable as the invoking user")
+        return 1
+    lines = text.splitlines()[-LOG_LINES:]
+    print("\n".join(lines))
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# doctor
+# ---------------------------------------------------------------------------
+def do_doctor() -> int:
+    """
+    Read-only health check. Every probe is allowed to fail; the point is to
+    report, not to raise. A doctor that dies on the first broken thing is
+    useless exactly when it is needed.
+    """
+    out: dict = {"ts": time.time(), "checks": []}
+
+    def check(name: str, ok: bool | None, detail: str, fix: str = "") -> None:
+        out["checks"].append({"name": name, "ok": ok,
+                              "detail": detail, "fix": fix})
+
+    try:
+        info = {}
+        for line in Path("/proc/meminfo").read_text().splitlines():
+            k, _, v = line.partition(":")
+            parts = v.split()
+            if parts and parts[0].isdigit():
+                info[k] = int(parts[0])
+        avail = info.get("MemAvailable", 0) // 1024
+        check("memory", avail > 150, f"{avail} MiB available",
+              "stop a service, or add swap" if avail <= 150 else "")
+    except OSError as e:
+        check("memory", None, f"unreadable: {e}")
+
+    try:
+        st = os.statvfs(DEV_DIR)
+        free_gb = st.f_bavail * st.f_frsize / 2**30
+        check("disk", free_gb > 2, f"{free_gb:.1f} GiB free on {DEV_DIR}",
+              "a compile needs ~1 GiB of scratch" if free_gb <= 2 else "")
+    except OSError as e:
+        check("disk", None, f"unreadable: {e}")
+
+    # The blocklist is the thing that silently stops working, so it gets three
+    # checks: the files exist, the blob/index pair agrees, and it is recent.
+    base = Path(DEV_DIR)
+    try:
+        bs = (base / "blocklist.compiled.bin").stat().st_size
+        is_ = (base / "blocklist.compiled.idx").stat().st_size
+        # DHB2: the index is exactly 4 bytes per domain, so a size that is not a
+        # multiple of 4 means the blob and index were published out of step.
+        aligned = is_ % 4 == 0
+        count = is_ // 4
+        check("blocklist", aligned and count > 100_000,
+              f"{count:,} domains, blob {bs/1048576:.1f} MiB, index {is_/1048576:.1f} MiB",
+              "run: dnshub blocklist refresh" if not aligned else "")
+    except OSError as e:
+        check("blocklist", None, f"missing or unreadable: {e}",
+              "run: dnshub blocklist refresh")
+
+    try:
+        meta = json.loads((base / "blocklist.meta.json").read_text())
+        age_h = ((time.time()
+                  - (base / "blocklist.compiled.bin").stat().st_mtime) / 3600)
+        check("blocklist freshness", age_h < 48,
+              f"compiled {age_h:.1f} h ago, "
+              f"{meta.get('failed_sources', '?')} failed sources",
+              "run: dnshub blocklist refresh" if age_h >= 48 else "")
+    except (OSError, json.JSONDecodeError, KeyError) as e:
+        check("blocklist freshness", None, f"no metadata: {e}")
+
+    # Does it actually resolve, and does the blocklist actually bite? A healthy
+    # resolver with a dead blocklist answers both questions "fine" at the port
+    # level, so these are separate checks on purpose.
+    if have_dig():
+        r = run(["dig", "+time=3", "+tries=1", "+short", "@127.0.0.1",
+                 "example.com", "A"], timeout=8)
+        check("dns resolves", bool(r.stdout.strip()),
+              r.stdout.strip().splitlines()[0] if r.stdout.strip() else "no answer",
+              "check the upstream pools; nothing depends on the blocklist" if not r.stdout.strip() else "")
+        b = run(["dig", "+time=3", "+tries=1", "+short", "@127.0.0.1",
+                 "doubleclick.net", "A"], timeout=8)
+        check("blocklist bites", not b.stdout.strip(),
+              "blocked (correct)" if not b.stdout.strip()
+              else f"LEAKING -> {b.stdout.strip()}",
+              "" if not b.stdout.strip()
+              else "the list is not loaded; restart the resolver")
+    else:
+        check("dns resolves", None, "dig is not installed, cannot test")
+
+    for key, spec in UNITS.items():
+        st = state_of(spec)
+        if not st.get("exists"):
+            check(f"unit {key}", None, f"{spec['unit']} is not present here",
+                  "dnshub install" if spec["kind"] == "systemd" else "")
+        else:
+            check(f"unit {key}", st["active"] == "active",
+                  f"{spec['kind']} {st['active']}/{st.get('sub','')}, "
+                  f"enabled={st.get('enabled','?')}, restarts={st.get('restarts','0')}",
+                  f"dnshub on {key}" if st["active"] != "active" else "")
+
+    print(json.dumps(out, indent=2))
+    return 0
+
+
+def have_dig() -> bool:
+    import shutil
+    return shutil.which("dig") is not None
+
+
+# ---------------------------------------------------------------------------
+def main(argv: list[str]) -> int:
+    if not argv:
+        die("usage: dnshub-ctl {status|start|stop|restart|enable|disable|"
+            "logs|doctor} [unit] [stream]")
+    action = argv[0]
+    if action == "doctor":
+        return do_doctor()
+
+    if len(argv) < 2:
+        die(f"{action} needs a unit")
+    key = argv[1]
+    # Exact dict lookup. Not a prefix match, not a glob, not a shell word: a
+    # caller cannot name anything that is not one of these eight keys.
+    if key not in UNITS:
+        die(f"unknown unit {key!r}; known: {', '.join(sorted(UNITS))}")
+    spec = UNITS[key]
+    unit = spec["unit"]
+
+    if action == "logs":
+        return do_logs(spec, argv[2] if len(argv) > 2 else "service")
+    if action not in READ_ONLY | MUTATING:
+        die(f"unknown action {action!r}")
+
+    if action == "status":
+        st = state_of(spec)
+        st.update({"key": key, "unit": unit, "label": spec["label"],
+                   "desc": spec["desc"], "group": spec["group"]})
+        print(json.dumps(st))
+        return 0
+
+    # --- mutating ---
+    if spec["kind"] == "container":
+        # For a container, "enable" and "disable" are the restart policy, not a
+        # systemd symlink. `no` really does mean it stays down after a reboot,
+        # which is the same promise the systemd buttons make.
+        if action in ("enable", "disable"):
+            policy = "unless-stopped" if action == "enable" else "no"
+            run(["docker", "update", "--restart", policy, unit], timeout=30)
+            if action == "enable":
+                run(["docker", "start", unit], timeout=60)
+            else:
+                run(["docker", "stop", "--time", "10", unit], timeout=60)
+            verb = f"{policy} + {'started' if action == 'enable' else 'stopped'}"
+        else:
+            flag = {"start": "start", "stop": "stop", "restart": "restart"}[action]
+            cmd = ["docker", flag]
+            if action == "stop":
+                cmd += ["--time", "10"]
+            run(cmd + [unit], timeout=90)
+            verb = flag + "ed" if action != "restart" else "restarted"
+    else:
+        if action in ("start", "enable"):
+            systemctl(unit, "enable", "--now", timeout=90)
+            verb = "enabled and started"
+        elif action in ("stop", "disable"):
+            systemctl(unit, "disable", "--now", timeout=90)
+            verb = "disabled and stopped"
+        else:
+            systemctl(unit, "restart", timeout=90)
+            verb = "restarted"
+
+    # Re-read rather than assume. `systemctl enable --now` and `docker start`
+    # both return 0 in situations where the service is not actually healthy, and
+    # a UI that reports success on a broken start is worse than no UI at all.
+    st = state_of(spec)
+    state = st.get("active", "unknown")
+    # A successful stop has a different vocabulary per kind: systemd says
+    # "inactive", docker says "exited" (and its health flips to "unhealthy"
+    # purely because it is no longer running, which is not a fault). Only
+    # "active" means "still up". An earlier version listed only inactive and
+    # unknown here, so every container stop came back as a failure.
+    wants_down = action in ("stop", "disable")
+    healthy = (state != "active") if wants_down else (state == "active")
+    print(json.dumps({
+        "key": key, "unit": unit, "kind": spec["kind"], "asked": action,
+        "result": state, "detail": st, "ok": healthy,
+        "message": f"{spec['label']}: {verb} ({state})",
+    }))
+    return 0 if healthy else 1
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main(sys.argv[1:]))
+    except KeyboardInterrupt:
+        sys.exit(130)
+    except BrokenPipeError:
+        os._exit(0)

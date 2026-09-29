@@ -115,7 +115,8 @@ every query to `127.0.0.1:53` — *it has no other upstream at all*, so
 "encrypted all the way" is guaranteed by construction.
 
 ```
-master switch:  src/dnshub  (on|off|restart|status|logs|doctor|…)
+master switch:  dnshub  (on|off|restart|status|logs|doctor|…) — on your PATH
+                after `install`, in `src/dnshub` before it
      │
      ├── systemd units:  dnshub-resolver · dnshub-control · dnshub-files ·
      │                   dnshub-privacy · dnshub-blocklist  (+fail2ban, chrony, wg)
@@ -151,14 +152,14 @@ the cache LRU-bounded, so memory stays flat at 3M domains.
 scp -r src dev@your-box:/home/dev/dnshub
 
 # 2. install (one-time): units, control token, sudo allowlist, CA + server certs
-cd /home/dev/dnshub
-sudo ./dnshub install
+cd /home/dev/dnshub/src
+sudo ./dnshub install      # afterwards `dnshub` is on your PATH
 
-# 3. start everything
-sudo ./dnshub on
+# 3. start everything - plain `dnshub` now, from any directory
+dnshub on
 
 # 4. grab the panel token
-sudo ./dnshub token
+dnshub token
 ```
 
 Then open `http://<your-box-ip>:8081` and paste the token. Done.
@@ -173,25 +174,29 @@ What `install` does, exactly:
 - validates the sudoers drop-in with `visudo -c` before installing it.
 
 If your box is not at `192.168.1.12`, set `DNSHUB_LAN_IP` (it feeds the cert
-SANs and the internal zone), e.g. `DNSHUB_LAN_IP=10.0.0.5 sudo ./dnshub on`.
+SANs and the internal zone), e.g. `DNSHUB_LAN_IP=10.0.0.5 dnshub on`.
 
 ---
 
 ## Everyday commands
 
 ```sh
-sudo ./dnshub on          # start / restart the whole hub (safe order)
-sudo ./dnshub off         # stop everything; ssh survives; restores with `on`
-sudo ./dnshub restart     # off then on
-sudo ./dnshub status      # one screen: units, memory, blocklist, leak check
-sudo ./dnshub logs        # tail resolver logs (logs <service> for another)
-sudo ./dnshub dns <name>  # resolve through dnshub, show blocked or not
-sudo ./dnshub doctor      # diagnose + suggest fixes
-sudo ./dnshub token       # print the panel token
-sudo ./dnshub blocklist refresh|stats|sources|test <domain>
-sudo ./dnshub selftest    # offline resolver invariants
-sudo ./dnshub version     # print version & author
+dnshub on          # start / restart the whole hub (safe order)
+dnshub off         # stop everything; ssh survives; restores with `on`
+dnshub restart     # off then on
+dnshub status      # one screen: units, memory, blocklist, leak check
+dnshub logs        # tail resolver logs (logs <service> for another)
+dnshub dns <name>  # resolve through dnshub, show blocked or not
+dnshub doctor      # diagnose + suggest fixes
+dnshub token       # print the panel token
+dnshub blocklist refresh|stats|sources|test <domain>
+dnshub selftest    # offline resolver invariants
+dnshub version     # print version & author
 ```
+
+> After `dnshub install` the master lives at `/usr/local/bin/dnshub` and
+> escalates to root itself when it needs to (one `sudo` prompt per run, or none
+> with passwordless sudo) — no `sudo` prefix, no per-action polkit prompts.
 
 ---
 
@@ -303,6 +308,7 @@ src/
   dnshub-ctl                  ← the sudo-allowlisted helper the panel calls
   dnshub-wg-guard             ← WireGuard LAN-safety guard (always-on unit)
   dnshub-wg-guard.service
+  unbound/unbound.conf        ← optional recursive sidecar (docker run recipe inside)
   blocklist-updater.py        ← daily list compile (service-owned schedule)
   blocklist_parser.py         ← streaming, memory-bounded parser
   blocklist_sources.py        ← curated source list + categories

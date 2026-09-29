@@ -26,12 +26,27 @@ All notable changes to **dnshub** are tracked here. The format is inspired by
 ### Changed
 - `dnshub on` now **restarts** active units instead of bare `enable --now`
   (avoids silently running stale code after an update).
+- **`dnshub` on your PATH**: `install` ships the master to
+  `/usr/local/lib/dnshub/dnshub` plus a `/usr/local/bin/dnshub` launcher that
+  pins `DNSHUB_DEV_DIR` to the installed tree. Every command escalates to root
+  itself — the operator gets a NOPASSWD sudo entry for that one launcher, so
+  plain `dnshub on|off|status|…` works from any directory with **zero** password
+  or polkit prompts (before the first install, one normal `sudo` still applies).
 - Blocklist compiled format DHB2 updated (mmap-ready blob + sorted index).
+- `dnshub on` and `setup.sh --clean` sweep stale blocklist compile
+  intermediates (`blocklist.compiled.*.tmp*`) left by an interrupted build.
 
 ### Fixed
 - Resolver now serves internal zone + NXDOMAIN correctly (6-field rrs tuples).
 - Gaming sticky survives restart (warm-load applies sticky tags).
 - Stale `build_binary` import in `tests/test_blocklist.py` corrected.
+- `dnshub install` now writes the `dnshub-resolver.service` unit — previously
+  it only existed on boxes that carried it over from an older manual setup, so
+  a truly fresh install had no resolver at all.
+- Fresh installs pre-create `/var/log/dnshub/abuse.log` (fail2ban refuses to
+  start while a jail's log file is missing).
+- Optional recursive `unbound` sidecar config published at
+  `src/unbound/unbound.conf` (container recipe in the file header).
 
 ## [1.0.0] — 2026-09
 

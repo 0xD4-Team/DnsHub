@@ -24,6 +24,12 @@ bad() { printf '  \033[1;31mXX\033[0m   %s\n' "$*"; }
 
 LAN_IP="${DNSHUB_LAN_IP:-$(hostname -I 2>/dev/null | awk '{print $1}')}"
 
+# The human operator is the owner of the source tree. Capture it BEFORE any
+# sudo: a `sudo bash setup.sh` run would otherwise re-sudo from root and the
+# master would see SUDO_USER=root. Passing the real owner explicitly makes
+# every install style produce services that run as the right user.
+OPERATOR_OWNER="$(stat -c '%U' "$SRC" 2>/dev/null || echo "${SUDO_USER:-mostfa}")"
+
 # sudo wrapper: on a normal terminal it prompts; with DNSHUB_SUDO_PW set it is
 # fully non-interactive (ssh sessions, CI, Ansible-style runs).
 run_sudo() {
@@ -69,15 +75,16 @@ cmd_clean() {
   find "$HERE" \( -name '__pycache__' -o -name '*.pyc' \) -prune -exec rm -rf {} + 2>/dev/null || true
   rm -f /tmp/dnshub-*.service /tmp/dnshub.sudoers \
         /tmp/dnshub-server.csr /tmp/dnshub-san.cnf 2>/dev/null || true
+  rm -f "$SRC"/blocklist.compiled.*.tmp* 2>/dev/null || true
   ok "scratch removed"
 }
 
 cmd_install() {
   check || { bad "aborting"; return 1; }
-  say "installing dnshub (units, control token, your private CA, sudoers allowlist)"
-  run_sudo env DNSHUB_LAN_IP="$LAN_IP" "$DN" install
+  say "installing dnshub (units, your private CA, sudoers allowlist)"
+  run_sudo env DNSHUB_OPERATOR="$OPERATOR_OWNER" DNSHUB_LAN_IP="$LAN_IP" "$DN" install
   say "starting the whole hub"
-  run_sudo env DNSHUB_LAN_IP="$LAN_IP" "$DN" on
+  run_sudo env DNSHUB_OPERATOR="$OPERATOR_OWNER" DNSHUB_LAN_IP="$LAN_IP" "$DN" on
   if run_sudo "$DN" version >/dev/null 2>&1; then
     run_sudo "$DN" version
   fi
@@ -88,7 +95,7 @@ cmd_install() {
   echo "  file hub      : http://$LAN_IP:8082"
   echo "  encrypted DNS : DoT dns.home:853  /  DoH https://$LAN_IP/dns-query"
   echo "  your CA       : https://$LAN_IP/ca.pem   (install once on every device)"
-  echo "  panel token   : $(run_sudo "$DN" token 2>/dev/null)"
+  echo "  panel auth    : none - LAN-only box, panels are open"
   echo
   echo "  To point a device at dnshub: set its DNS server to $LAN_IP"
   echo "  (or hostname dns.home via 'Private DNS' for encrypted DNS)."

@@ -1,0 +1,381 @@
+[updater] ====================================================================
+[updater] update start  profile=daily  sources=32
+[updater] expected entries (pre-dedup, from registry): 4,318,610
+[updater]   ok   HaGeZi-Ultimate: 286,404 domains in 16s
+[updater]   ok   OISD-Big: 244,459 domains in 16s
+[updater]   ok   AdGuard-SDNS: 175,676 domains in 10s
+[updater]   ok   StevenBlack: 74,758 domains in 4s
+[updater]   ok   1Hosts-Xtra: 1,115,907 domains in 63s
+[updater]   ok   BlocklistProject-ads: 235,842 domains in 15s
+[updater]   ok   HaGeZi-PopupAds: 50,712 domains in 3s
+[updater]   ok   HaGeZi-UrlShortener: 9,980 domains in 1s
+[updater]   ok   AdGuard-Base: 59,983 domains in 7s
+[updater]   ok   AdGuard-Mobile: 1,085 domains in 1s
+[updater]   ok   anudeep-adservers: 42,343 domains in 2s
+[updater]   ok   MVPS: 8,728 domains in 2s
+[updater]   ok   PeterLowe-yoyo: 3,550 domains in 1s
+[updater]   ok   BLP-crypto: 1,274 domains in 0s
+[updater]   ok   notracking: 275,067 domains in 26s
+[updater]   ok   BLP-tracking: 143,866 domains in 7s
+[updater]   ok   HaGeZi-DoH: 3,334 domains in 1s
+[updater]   ok   HaGeZi-DynDNS: 1,538 domains in 0s
+[updater]   ok   HaGeZi-NoSafeSearch: 205 domains in 0s
+[updater]   ok   HaGeZi-Hoster: 1,238 domains in 0s
+[updater]   ok   Firebog-EasyPrivacy: 43,136 domains in 1s
+[updater]   ok   Ultimate-Hosts-Blacklist: 153,774 domains in 4s
+[updater]   ok   PiHole-SmartTV: 497 domains in 0s
+[updater]   ok   BLP-smart-tv: 77 domains in 0s
+[updater]   ok   BLP-abuse: 434,677 domains in 20s
+[updater]   ok   BLP-fraud: 285,023 domains in 13s
+[updater]   ok   BLP-phishing: 190,089 domains in 9s
+[updater]   ok   Phishing-Army-X: 149,501 domains in 6s
+[updater]   ok   HaGeZi-Fake: 17,414 domains in 2s
+[updater]   ok   AntiMalware-Hosts: 11,760 domains in 1s
+[updater]   ok   BLP-scam: 8,527 domains in 1s
+[updater]   ok   URLhaus: 381 domains in 0s
+[updater] force-blocked 3 domain(s) that the allowlist would otherwise have protected
+[updater] deduplicated: 3,057,342 unique -> 3,041,320 after exemptions
+[updater] verified: byte-sorted, 3,041,320 entries, 25,000 adjacent pairs checked, 0 inverted
+[updater] compiled DHB2: 3,041,320 domains, blob 60.2 MiB, index 11.6 MiB
+[updater] done in 130s, peak RSS 373 MiB
+[updater] next rebuild in 12.0h
+[updater] signal 15: finishing current cycle
+[updater] ====================================================================
+[updater] update start  profile=daily  sources=32
+[updater] expected entries (pre-dedup, from registry): 4,318,610
+[updater]   ok   HaGeZi-Ultimate: 286,404 domains in 15s
+[updater]   ok   OISD-Big: 244,459 domains in 18s
+[updater]   ok   AdGuard-SDNS: 175,676 domains in 8s
+[updater]   ok   StevenBlack: 74,758 domains in 3s
+[updater]   ok   1Hosts-Xtra: 1,115,907 domains in 65s
+[updater]   ok   BlocklistProject-ads: 235,842 domains in 7s
+[updater]   ok   HaGeZi-PopupAds: 50,712 domains in 2s
+[updater]   ok   HaGeZi-UrlShortener: 9,980 domains in 1s
+[updater]   ok   AdGuard-Base: 59,983 domains in 8s
+[updater]   ok   AdGuard-Mobile: 1,085 domains in 2s
+[updater]   ok   anudeep-adservers: 42,343 domains in 1s
+[updater]   ok   MVPS: 8,728 domains in 2s
+[updater]   ok   PeterLowe-yoyo: 3,550 domains in 1s
+[updater]   ok   BLP-crypto: 1,274 domains in 0s
+[updater]   ok   notracking: 275,067 domains in 16s
+[updater]   ok   BLP-tracking: 143,866 domains in 12s
+[updater]   ok   HaGeZi-DoH: 3,334 domains in 0s
+[updater]   ok   HaGeZi-DynDNS: 1,538 domains in 0s
+[updater]   ok   HaGeZi-NoSafeSearch: 205 domains in 0s
+[updater]   ok   HaGeZi-Hoster: 1,238 domains in 0s
+[updater]   ok   Firebog-EasyPrivacy: 43,136 domains in 2s
+[updater]   ok   Ultimate-Hosts-Blacklist: 153,774 domains in 4s
+[updater]   ok   PiHole-SmartTV: 497 domains in 0s
+[updater]   ok   BLP-smart-tv: 77 domains in 0s
+[updater]   ok   BLP-abuse: 434,677 domains in 25s
+[updater]   ok   BLP-fraud: 285,023 domains in 11s
+[updater]   ok   BLP-phishing: 190,089 domains in 10s
+[updater]   ok   Phishing-Army-X: 149,501 domains in 5s
+[updater]   ok   HaGeZi-Fake: 17,414 domains in 2s
+[updater]   ok   AntiMalware-Hosts: 11,760 domains in 1s
+[updater]   ok   BLP-scam: 8,527 domains in 1s
+[updater]   ok   URLhaus: 381 domains in 0s
+[updater] force-blocked 3 domain(s) that the allowlist would otherwise have protected
+[updater] deduplicated: 3,057,342 unique -> 3,041,320 after exemptions
+[updater] verified: byte-sorted, 3,041,320 entries, 25,000 adjacent pairs checked, 0 inverted
+[updater] compiled DHB2: 3,041,320 domains, blob 60.2 MiB, index 11.6 MiB
+[updater] done in 130s, peak RSS 315 MiB
+[updater] next rebuild in 12.0h
+[updater] signal 15: finishing current cycle
+[updater] ====================================================================
+[updater] update start  profile=daily  sources=32
+[updater] expected entries (pre-dedup, from registry): 4,318,610
+[updater]   ok   HaGeZi-Ultimate: 286,404 domains in 16s
+[updater]   ok   OISD-Big: 244,459 domains in 16s
+[updater]   ok   AdGuard-SDNS: 175,676 domains in 8s
+[updater]   ok   StevenBlack: 74,758 domains in 4s
+[updater]   ok   1Hosts-Xtra: 1,115,907 domains in 47s
+[updater]   ok   BlocklistProject-ads: 235,842 domains in 6s
+[updater]   ok   HaGeZi-PopupAds: 50,712 domains in 4s
+[updater]   ok   HaGeZi-UrlShortener: 9,980 domains in 1s
+[updater]   ok   AdGuard-Base: 59,983 domains in 8s
+[updater]   ok   AdGuard-Mobile: 1,085 domains in 1s
+[updater]   ok   anudeep-adservers: 42,343 domains in 1s
+[updater]   ok   MVPS: 8,728 domains in 2s
+[updater]   ok   PeterLowe-yoyo: 3,550 domains in 0s
+[updater]   ok   BLP-crypto: 1,274 domains in 1s
+[updater]   ok   notracking: 275,067 domains in 14s
+[updater]   ok   BLP-tracking: 143,866 domains in 7s
+[updater]   ok   HaGeZi-DoH: 3,334 domains in 1s
+[updater]   ok   HaGeZi-DynDNS: 1,538 domains in 0s
+[updater]   ok   HaGeZi-NoSafeSearch: 205 domains in 0s
+[updater]   ok   HaGeZi-Hoster: 1,238 domains in 0s
+[updater]   ok   Firebog-EasyPrivacy: 43,136 domains in 9s
+[updater]   ok   Ultimate-Hosts-Blacklist: 153,774 domains in 5s
+[updater]   ok   PiHole-SmartTV: 497 domains in 0s
+[updater]   ok   BLP-smart-tv: 77 domains in 0s
+[updater]   ok   BLP-abuse: 434,677 domains in 30s
+[updater]   ok   BLP-fraud: 285,023 domains in 26s
+[updater]   ok   BLP-phishing: 190,089 domains in 4s
+[updater]   ok   Phishing-Army-X: 149,501 domains in 3s
+[updater]   ok   HaGeZi-Fake: 17,414 domains in 1s
+[updater]   ok   AntiMalware-Hosts: 11,760 domains in 1s
+[updater]   ok   BLP-scam: 8,527 domains in 1s
+[updater]   ok   URLhaus: 381 domains in 0s
+[updater] force-blocked 3 domain(s) that the allowlist would otherwise have protected
+[updater] deduplicated: 3,057,342 unique -> 3,041,320 after exemptions
+[updater] signal 15: finishing current cycle
+[updater] verified: byte-sorted, 3,041,320 entries, 25,000 adjacent pairs checked, 0 inverted
+[updater] compiled DHB2: 3,041,320 domains, blob 60.2 MiB, index 11.6 MiB
+[updater] done in 130s, peak RSS 282 MiB
+[updater] next rebuild in 12.0h
+[updater] ====================================================================
+[updater] update start  profile=daily  sources=32
+[updater] expected entries (pre-dedup, from registry): 4,318,610
+[updater]   ok   HaGeZi-Ultimate: 286,404 domains in 9s
+[updater]   ok   OISD-Big: 244,459 domains in 14s
+[updater]   ok   AdGuard-SDNS: 175,676 domains in 10s
+[updater]   ok   StevenBlack: 74,758 domains in 3s
+[updater]   ok   1Hosts-Xtra: 1,115,907 domains in 44s
+[updater]   ok   BlocklistProject-ads: 235,842 domains in 15s
+[updater]   ok   HaGeZi-PopupAds: 50,712 domains in 2s
+[updater]   ok   HaGeZi-UrlShortener: 9,980 domains in 0s
+[updater]   ok   AdGuard-Base: 59,983 domains in 5s
+[updater]   ok   AdGuard-Mobile: 1,085 domains in 1s
+[updater]   ok   anudeep-adservers: 42,343 domains in 2s
+[updater]   ok   MVPS: 8,728 domains in 2s
+[updater]   ok   PeterLowe-yoyo: 3,550 domains in 1s
+[updater]   ok   BLP-crypto: 1,274 domains in 0s
+[updater]   ok   notracking: 275,067 domains in 20s
+[updater]   ok   BLP-tracking: 143,866 domains in 7s
+[updater]   ok   HaGeZi-DoH: 3,334 domains in 1s
+[updater]   ok   HaGeZi-DynDNS: 1,538 domains in 0s
+[updater]   ok   HaGeZi-NoSafeSearch: 205 domains in 0s
+[updater]   ok   HaGeZi-Hoster: 1,238 domains in 0s
+[updater]   ok   Firebog-EasyPrivacy: 43,136 domains in 3s
+[updater]   ok   Ultimate-Hosts-Blacklist: 153,774 domains in 8s
+[updater]   ok   PiHole-SmartTV: 497 domains in 0s
+[updater]   ok   BLP-smart-tv: 77 domains in 0s
+[updater]   ok   BLP-abuse: 434,677 domains in 14s
+[updater]   ok   BLP-fraud: 285,023 domains in 15s
+[updater]   ok   BLP-phishing: 190,089 domains in 9s
+[updater]   ok   Phishing-Army-X: 149,501 domains in 3s
+[updater]   ok   HaGeZi-Fake: 17,414 domains in 2s
+[updater]   ok   AntiMalware-Hosts: 11,760 domains in 1s
+[updater]   ok   BLP-scam: 8,527 domains in 1s
+[updater]   ok   URLhaus: 381 domains in 1s
+[updater] force-blocked 3 domain(s) that the allowlist would otherwise have protected
+[updater] deduplicated: 3,057,342 unique -> 3,041,320 after exemptions
+[updater] verified: byte-sorted, 3,041,320 entries, 25,000 adjacent pairs checked, 0 inverted
+[updater] compiled DHB2: 3,041,320 domains, blob 60.2 MiB, index 11.6 MiB
+[updater] done in 118s, peak RSS 324 MiB
+[updater] next rebuild in 12.0h
+[updater] signal 15: finishing current cycle
+[updater] ====================================================================
+[updater] update start  profile=daily  sources=32
+[updater] expected entries (pre-dedup, from registry): 4,318,610
+[updater] ====================================================================
+[updater] update start  profile=daily  sources=32
+[updater] expected entries (pre-dedup, from registry): 4,318,610
+[updater] signal 15: finishing current cycle
+[updater]   ok   HaGeZi-Ultimate: 286,404 domains in 216s
+[updater] ====================================================================
+[updater] update start  profile=daily  sources=32
+[updater] expected entries (pre-dedup, from registry): 4,318,610
+[updater] signal 15: finishing current cycle
+[updater]   ok   HaGeZi-Ultimate: 286,404 domains in 117s
+[updater]   ok   OISD-Big: 244,459 domains in 118s
+[updater]   ok   AdGuard-SDNS: 175,676 domains in 116s
+[updater]   ok   StevenBlack: 74,758 domains in 3s
+[updater] ====================================================================
+[updater] update start  profile=daily  sources=32
+[updater] expected entries (pre-dedup, from registry): 4,318,610
+[updater]   retry 1/3 in 5s (ConnectionResetError)
+[updater]   ok   HaGeZi-Ultimate: 286,404 domains in 46s
+[updater] ====================================================================
+[updater] update start  profile=daily  sources=32
+[updater] expected entries (pre-dedup, from registry): 4,318,610
+[updater] signal 15: finishing current cycle
+[updater]   retry 1/3 in 8s (TimeoutError)
+[updater] ====================================================================
+[updater] update start  profile=daily  sources=32
+[updater] expected entries (pre-dedup, from registry): 4,318,610
+[updater]   ok   HaGeZi-Ultimate: 286,404 domains in 104s
+[updater]   retry 1/3 in 6s (TimeoutError)
+[updater]   ok   OISD-Big: 244,459 domains in 388s
+[updater]   ok   AdGuard-SDNS: 175,676 domains in 103s
+[updater]   ok   StevenBlack: 74,758 domains in 91s
+[updater]   ok   1Hosts-Xtra: 1,115,907 domains in 124s
+[updater]   ok   BlocklistProject-ads: 235,842 domains in 5s
+[updater]   ok   HaGeZi-PopupAds: 50,712 domains in 2s
+[updater]   ok   HaGeZi-UrlShortener: 9,980 domains in 1s
+[updater]   ok   AdGuard-Base: 60,003 domains in 8s
+[updater]   ok   AdGuard-Mobile: 1,085 domains in 1s
+[updater]   ok   anudeep-adservers: 42,343 domains in 1s
+[updater]   ok   MVPS: 8,728 domains in 2s
+[updater]   ok   PeterLowe-yoyo: 3,550 domains in 0s
+[updater]   ok   BLP-crypto: 1,274 domains in 0s
+[updater]   ok   notracking: 275,067 domains in 65s
+[updater]   ok   BLP-tracking: 143,866 domains in 48s
+[updater]   ok   HaGeZi-DoH: 3,334 domains in 1s
+[updater]   ok   HaGeZi-DynDNS: 1,538 domains in 1s
+[updater]   ok   HaGeZi-NoSafeSearch: 205 domains in 0s
+[updater]   ok   HaGeZi-Hoster: 1,238 domains in 1s
+[updater]   ok   Firebog-EasyPrivacy: 43,136 domains in 2s
+[updater]   ok   Ultimate-Hosts-Blacklist: 153,774 domains in 4s
+[updater]   ok   PiHole-SmartTV: 497 domains in 0s
+[updater]   ok   BLP-smart-tv: 77 domains in 0s
+[updater]   ok   BLP-abuse: 434,677 domains in 108s
+[updater]   ok   BLP-fraud: 285,023 domains in 7s
+[updater]   ok   BLP-phishing: 190,089 domains in 90s
+[updater]   ok   Phishing-Army-X: 149,501 domains in 8s
+[updater]   ok   HaGeZi-Fake: 17,414 domains in 11s
+[updater]   ok   AntiMalware-Hosts: 11,760 domains in 34s
+[updater]   ok   BLP-scam: 8,527 domains in 79s
+[updater]   ok   URLhaus: 381 domains in 24s
+[updater] force-blocked 3 domain(s) that the allowlist would otherwise have protected
+[updater] deduplicated: 3,057,362 unique -> 3,041,340 after exemptions
+[updater] verified: byte-sorted, 3,041,340 entries, 25,000 adjacent pairs checked, 0 inverted
+[updater] compiled DHB2: 3,041,340 domains, blob 60.2 MiB, index 11.6 MiB
+[updater] done in 523s, peak RSS 250 MiB
+[updater] next rebuild in 11.9h
+[updater] signal 15: finishing current cycle
+[updater] ====================================================================
+[updater] update start  profile=daily  sources=32
+[updater] expected entries (pre-dedup, from registry): 4,318,610
+[updater]   ok   HaGeZi-Ultimate: 286,404 domains in 83s
+[updater]   ok   OISD-Big: 244,459 domains in 83s
+[updater]   ok   AdGuard-SDNS: 175,708 domains in 79s
+[updater]   ok   StevenBlack: 74,758 domains in 4s
+[updater]   ok   1Hosts-Xtra: 1,115,907 domains in 39s
+[updater]   ok   BlocklistProject-ads: 235,842 domains in 18s
+[updater]   ok   HaGeZi-PopupAds: 50,712 domains in 4s
+[updater]   ok   HaGeZi-UrlShortener: 9,980 domains in 1s
+[updater]   ok   AdGuard-Base: 60,003 domains in 9s
+[updater]   ok   AdGuard-Mobile: 1,085 domains in 1s
+[updater]   ok   anudeep-adservers: 42,343 domains in 4s
+[updater]   ok   MVPS: 8,728 domains in 2s
+[updater]   ok   PeterLowe-yoyo: 3,550 domains in 1s
+[updater]   ok   BLP-crypto: 1,274 domains in 1s
+[updater]   ok   notracking: 275,067 domains in 19s
+[updater]   ok   BLP-tracking: 143,866 domains in 6s
+[updater]   ok   HaGeZi-DoH: 3,334 domains in 1s
+[updater]   ok   HaGeZi-DynDNS: 1,538 domains in 1s
+[updater]   ok   HaGeZi-NoSafeSearch: 205 domains in 1s
+[updater]   ok   HaGeZi-Hoster: 1,238 domains in 1s
+[updater]   ok   Firebog-EasyPrivacy: 43,136 domains in 2s
+[updater]   ok   Ultimate-Hosts-Blacklist: 153,774 domains in 27s
+[updater]   ok   PiHole-SmartTV: 497 domains in 29s
+[updater]   ok   BLP-smart-tv: 77 domains in 24s
+[updater]   ok   BLP-abuse: 434,677 domains in 19s
+[updater]   ok   BLP-fraud: 285,023 domains in 14s
+[updater]   ok   BLP-phishing: 190,089 domains in 10s
+[updater]   ok   Phishing-Army-X: 149,501 domains in 4s
+[updater]   ok   HaGeZi-Fake: 17,414 domains in 2s
+[updater]   ok   AntiMalware-Hosts: 11,760 domains in 2s
+[updater]   ok   BLP-scam: 8,527 domains in 1s
+[updater]   ok   URLhaus: 381 domains in 0s
+[updater] force-blocked 3 domain(s) that the allowlist would otherwise have protected
+[updater] deduplicated: 3,057,367 unique -> 3,041,345 after exemptions
+[updater] signal 15: finishing current cycle
+[updater] cycle failed (FileNotFoundError: [Errno 2] No such file or directory: '/home/mostfa/DnsHub/src/blocklist.compiled.bin.tmp'); retrying in 43200s
+[updater] next rebuild in 11.9h
+[updater] ====================================================================
+[updater] update start  profile=daily  sources=32
+[updater] expected entries (pre-dedup, from registry): 4,318,610
+[updater]   ok   HaGeZi-Ultimate: 286,404 domains in 20s
+[updater]   ok   OISD-Big: 244,459 domains in 22s
+[updater]   ok   AdGuard-SDNS: 175,708 domains in 20s
+[updater]   retry 1/3 in 7s (TimeoutError)
+[updater]   retry 1/3 in 10s (TimeoutError)
+[updater]   retry 1/3 in 7s (TimeoutError)
+[updater]   retry 2/3 in 12s (TimeoutError)
+[updater]   retry 2/3 in 15s (TimeoutError)
+[updater]   ok   StevenBlack: 74,758 domains in 646s
+[updater] ====================================================================
+[updater] update start  profile=daily  sources=32
+[updater] expected entries (pre-dedup, from registry): 4,318,610
+[updater] signal 15: finishing current cycle
+[updater]   ok   HaGeZi-Ultimate: 286,404 domains in 52s
+[updater]   ok   OISD-Big: 244,459 domains in 52s
+[updater]   ok   AdGuard-SDNS: 175,708 domains in 46s
+[updater]   ok   StevenBlack: 74,758 domains in 4s
+[updater] ====================================================================
+[updater] update start  profile=daily  sources=32
+[updater] expected entries (pre-dedup, from registry): 4,318,610
+[updater]   ok   HaGeZi-Ultimate: 286,404 domains in 66s
+[updater]   retry 1/3 in 7s (TimeoutError)
+[updater]   ok   OISD-Big: 244,459 domains in 369s
+[updater]   ok   AdGuard-SDNS: 175,708 domains in 61s
+[updater]   ok   StevenBlack: 74,758 domains in 4s
+[updater]   ok   1Hosts-Xtra: 219,165 domains in 245s
+[updater]   ok   BlocklistProject-ads: 235,842 domains in 14s
+[updater]   ok   HaGeZi-PopupAds: 50,712 domains in 228s
+[updater]   ok   HaGeZi-UrlShortener: 9,980 domains in 1s
+[updater]   ok   AdGuard-Base: 60,003 domains in 5s
+[updater]   ok   AdGuard-Mobile: 1,085 domains in 1s
+[updater]   ok   anudeep-adservers: 42,343 domains in 2s
+[updater]   ok   MVPS: 8,728 domains in 2s
+[updater]   ok   PeterLowe-yoyo: 3,550 domains in 0s
+[updater]   ok   BLP-crypto: 1,274 domains in 0s
+[updater]   ok   notracking: 275,067 domains in 14s
+[updater]   ok   BLP-tracking: 143,866 domains in 13s
+[updater]   ok   HaGeZi-DoH: 3,334 domains in 0s
+[updater]   ok   HaGeZi-DynDNS: 1,538 domains in 0s
+[updater]   ok   HaGeZi-NoSafeSearch: 205 domains in 0s
+[updater]   ok   HaGeZi-Hoster: 1,238 domains in 0s
+[updater]   ok   Firebog-EasyPrivacy: 43,136 domains in 2s
+[updater]   ok   Ultimate-Hosts-Blacklist: 153,774 domains in 5s
+[updater]   ok   PiHole-SmartTV: 497 domains in 0s
+[updater]   ok   BLP-smart-tv: 77 domains in 0s
+[updater]   ok   BLP-abuse: 434,677 domains in 15s
+[updater]   ok   BLP-fraud: 285,023 domains in 14s
+[updater]   ok   BLP-phishing: 190,089 domains in 7s
+[updater]   ok   Phishing-Army-X: 149,527 domains in 5s
+[updater]   ok   HaGeZi-Fake: 17,414 domains in 1s
+[updater]   ok   AntiMalware-Hosts: 11,760 domains in 1s
+[updater]   ok   BLP-scam: 8,527 domains in 1s
+[updater]   ok   URLhaus: 380 domains in 0s
+[updater] force-blocked 3 domain(s) that the allowlist would otherwise have protected
+[updater] deduplicated: 2,286,685 unique -> 2,272,598 after exemptions
+[updater] verified: byte-sorted, 2,272,598 entries, 25,000 adjacent pairs checked, 0 inverted
+[updater] compiled DHB2: 2,272,598 domains, blob 45.8 MiB, index 8.7 MiB
+[updater] done in 417s, peak RSS 200 MiB
+[updater] next rebuild in 11.9h
+[updater] signal 15: finishing current cycle
+[updater] ====================================================================
+[updater] update start  profile=daily  sources=32
+[updater] expected entries (pre-dedup, from registry): 4,318,610
+[updater]   ok   HaGeZi-Ultimate: 286,404 domains in 17s
+[updater]   ok   OISD-Big: 244,459 domains in 17s
+[updater]   ok   AdGuard-SDNS: 175,708 domains in 9s
+[updater]   ok   StevenBlack: 74,758 domains in 4s
+[updater]   ok   1Hosts-Xtra: 1,115,907 domains in 198s
+[updater]   ok   BlocklistProject-ads: 235,842 domains in 40s
+[updater]   ok   HaGeZi-PopupAds: 50,712 domains in 34s
+[updater]   ok   HaGeZi-UrlShortener: 9,980 domains in 1s
+[updater]   ok   AdGuard-Base: 60,003 domains in 6s
+[updater]   ok   AdGuard-Mobile: 1,085 domains in 1s
+[updater]   ok   anudeep-adservers: 42,343 domains in 1s
+[updater]   ok   MVPS: 8,728 domains in 2s
+[updater]   ok   PeterLowe-yoyo: 3,550 domains in 1s
+[updater]   ok   BLP-crypto: 1,274 domains in 0s
+[updater]   ok   notracking: 275,067 domains in 13s
+[updater]   ok   BLP-tracking: 143,866 domains in 10s
+[updater]   ok   HaGeZi-DoH: 3,334 domains in 1s
+[updater]   ok   HaGeZi-DynDNS: 1,538 domains in 2s
+[updater]   ok   HaGeZi-NoSafeSearch: 205 domains in 45s
+[updater]   ok   HaGeZi-Hoster: 1,238 domains in 4s
+[updater]   ok   Firebog-EasyPrivacy: 43,136 domains in 109s
+[updater]   ok   Ultimate-Hosts-Blacklist: 153,774 domains in 60s
+[updater]   ok   PiHole-SmartTV: 497 domains in 0s
+[updater]   ok   BLP-smart-tv: 77 domains in 0s
+[updater]   ok   BLP-abuse: 434,677 domains in 10s
+[updater]   ok   BLP-fraud: 285,023 domains in 7s
+[updater]   ok   BLP-phishing: 190,089 domains in 14s
+[updater]   ok   Phishing-Army-X: 149,527 domains in 5s
+[updater]   ok   HaGeZi-Fake: 17,414 domains in 2s
+[updater]   ok   AntiMalware-Hosts: 11,760 domains in 1s
+[updater]   ok   BLP-scam: 8,527 domains in 1s
+[updater]   ok   URLhaus: 381 domains in 1s
+[updater] force-blocked 3 domain(s) that the allowlist would otherwise have protected
+[updater] deduplicated: 3,057,410 unique -> 3,041,388 after exemptions
+[updater] verified: byte-sorted, 3,041,388 entries, 25,000 adjacent pairs checked, 0 inverted
+[updater] compiled DHB2: 3,041,388 domains, blob 60.2 MiB, index 11.6 MiB
+[updater] done in 265s, peak RSS 274 MiB
+[updater] next rebuild in 11.9h

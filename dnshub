@@ -1,0 +1,716 @@
+#!/usr/bin/env bash
+#
+# dnshub - one command for the whole box.
+#
+#   dnshub on          install units, enable and start everything, open the UIs
+#   dnshub off         stop the WHOLE hub safely; ssh stays up, everything
+#                      comes back exactly as before with `dnshub on`
+#   dnshub restart      off then on
+#   dnshub status      one screen: every service, memory, blocklist, leak check
+#   dnshub logs [unit] tail a service (default: the resolver)
+#   dnshub doctor      diagnose, with a suggested fix for each problem
+#   dnshub blocklist   refresh | stats | sources | test <domain>...
+#   dnshub dns <name>  resolve a name through dnshub (and show if it is blocked)
+#   dnshub install     (re)install the privileged bits; needs sudo
+#   dnshub selftest    verify the resolver's own invariants
+#   dnshub version     print the dnshub version
+#
+# Everything lives in this one file plus the two helpers it installs, so
+# "dnshub on" on a fresh box is the whole setup.
+#
+# Two rules this script follows because they cost me an afternoon once:
+#   * never generate a config file through a sudo heredoc - upload to /tmp and
+#     `install` it. `sudo bash -c` with a redirect in it will clobber the file.
+#   * never write to /run or /tmp for state that must survive a reboot, unless
+#     something recreates it. /run is a root tmpfs; a lock or token left there
+#     by root is gone after a reboot and the failure is silent.
+set -uo pipefail
+
+VERSION="2.1.0"
+
+# Resolve to the directory this script lives in, so a fresh clone "just works"
+# no matter where it is unpacked (override with DNSHUB_DEV_DIR for odd layouts).
+_here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DEV_DIR="${DNSHUB_DEV_DIR:-$_here}"
+CTL="/usr/local/sbin/dnshub-ctl"
+CONTROL="/usr/local/lib/dnshub/dnshub-control.py"
+FILES="/usr/local/lib/dnshub/dnshub-files.py"
+PRIVACY="/usr/local/lib/dnshub/dnshub-privacy.py"
+FILES_ROOT="${DNSHUB_FILES_ROOT:-$(dirname "$DEV_DIR")/files}"
+CERT_DIR="${DNSHUB_CERT_DIR:-/etc/dnshub/certs}"
+SUDOERS="/etc/sudoers.d/dnshub"
+PROFILE="${DNSHUB_PROFILE:-daily}"
+
+# If the box is not at 192.168.1.12, the cert SANs must follow the LAN IP.
+DNSHUB_LAN_IP="${DNSHUB_LAN_IP:-$(hostname -I 2>/dev/null | awk '{print $1}')}"
+
+# The complete surface the master switch knows about. Keep in sync with the
+# UNITS table in dnshub-ctl (single source of truth for the web UI); this list
+# exists so `on`/`off` can order and drive the same set.
+UNITS_ON=(dnshub-blocklist dnshub-control dnshub-files dnshub-privacy fail2ban chrony)
+UNITS_OFF=(dnshub-control dnshub-files dnshub-privacy dnshub-blocklist netdata
+           dnshub-resolver wg-quick@wg0 fail2ban chrony)
+
+# Deliberately NO root->user demotion here. An earlier version dropped
+# privileges when invoked as root, so that read-only verbs like `status` would
+# run as the operator. That was a mistake: `sudo dnshub install` demotes to
+# mostfa, mostfa then has to sudo back up to write /etc, and `sudo -n` has no
+# cached credential at that point, so the install died with "interactive
+# authentication is required". need_root() is the only escalation point, and
+# already being root simply means there is nothing to escalate.
+
+say()  { printf '\033[1;34m::\033[0m %s\n' "$*"; }
+ok()   { printf '  \033[1;32mok\033[0m   %s\n' "$*"; }
+warn() { printf '  \033[1;33m!!\033[0m   %s\n' "$*"; }
+bad()  { printf '  \033[1;31mXX\033[0m   %s\n' "$*"; }
+have() { command -v "$1" >/dev/null 2>&1; }
+
+# Root only for the actions that write to /etc or /usr/local.
+need_root() {
+  if [ "$(id -u)" -ne 0 ]; then
+    # Installed box: escalate through the /usr/local/bin launcher, which is
+    # allowlisted NOPASSWD in the sudoers drop-in, so day-to-day ops are fully
+    # silent (the launcher pins DEV_DIR itself, so nothing depends on sudo's
+    # environment handling). Before the first install there is no launcher yet,
+    # so fall back to a direct escalation carrying DEV_DIR/LAN_IP explicitly.
+    local baked
+    if [ -x /usr/local/bin/dnshub ] && \
+       baked="$(sed -n "s/.*DNSHUB_DEV_DIR='\([^']*\)'.*/\1/p" /usr/local/bin/dnshub | head -1)" && \
+       [ "$baked" = "$DEV_DIR" ]; then
+      exec sudo /usr/local/bin/dnshub "$@"
+    fi
+    exec sudo env DNSHUB_AS_ROOT=1 DNSHUB_DEV_DIR="$DEV_DIR" \
+      DNSHUB_LAN_IP="$DNSHUB_LAN_IP" "$0" "$@"
+  fi
+}
+
+# Ask the helper for a unit's state without a shell in the middle.
+unit_active() { sudo -n "$CTL" status "$1" 2>/dev/null | grep -o '"active": "[^"]*"' | cut -d'"' -f4; }
+
+# ---------------------------------------------------------------------------
+# install
+# ---------------------------------------------------------------------------
+cmd_install() {
+  need_root install
+  say "installing the privileged bits"
+  # Set this before ANY block that references it (the service units below use
+  # it for User=/Group=/ownership). NEVER infer the operator from SUDO_USER
+  # inside a root run: `sudo bash setup.sh` re-sudoes from root, so SUDO_USER
+  # becomes "root" and every service would be installed with User=root. The
+  # source tree's owner IS the box owner (that is who runs setup.sh), so fall
+  # back to that before ever accepting root. Pin it explicitly with the
+  # DNSHUB_OPERATOR env var if the tree lives somewhere root-owned.
+  OPERATOR="${DNSHUB_OPERATOR:-${SUDO_USER:-}}"
+  if [ -z "$OPERATOR" ] || [ "$OPERATOR" = "root" ]; then
+    OPERATOR="$(stat -c '%U' "$DEV_DIR" 2>/dev/null)"
+  fi
+  [ -n "$OPERATOR" ] && [ "$OPERATOR" != "root" ] || OPERATOR="${DNSHUB_OPERATOR_FALLBACK:-mostfa}"
+  install -d -m 0755 /usr/local/sbin /usr/local/lib/dnshub /etc/dnshub
+
+  # dnshub-ctl is the ONLY thing sudo will let the web UI call. It must be
+  # root-owned and not writable by anyone else, or the allowlist inside it is
+  # meaningless: the web UI could just edit the file.
+  install -m 0755 -o root -g root "$DEV_DIR/dnshub-ctl" "$CTL"
+  ok "dnshub-ctl -> $CTL (root:root 0755)"
+
+  # The master itself: an installed copy under /usr/local/lib plus a PATH
+  # launcher. The launcher pins DEV_DIR to the source tree this box was
+  # installed from, so the installed master still finds files/, the lists and
+  # the logs even though its own location would auto-detect DEV_DIR as
+  # /usr/local/lib/dnshub. That is also what makes plain `dnshub` work from
+  # any directory after install.
+  install -m 0755 -o root -g root "$DEV_DIR/dnshub" /usr/local/lib/dnshub/dnshub
+  ok "dnshub -> /usr/local/lib/dnshub/dnshub"
+  cat > /tmp/dnshub-bin <<EOF
+#!/bin/sh
+# dnshub PATH launcher (written by 'dnshub install').
+exec env DNSHUB_DEV_DIR='$DEV_DIR' /usr/local/lib/dnshub/dnshub "\$@"
+EOF
+  install -m 0755 -o root -g root /tmp/dnshub-bin /usr/local/bin/dnshub
+  rm -f /tmp/dnshub-bin
+  ok "dnshub -> /usr/local/bin/dnshub (on your PATH)"
+
+  install -m 0755 -o root -g root "$DEV_DIR/dnshub-control.py" "$CONTROL"
+  ok "dnshub-control.py -> $CONTROL"
+
+  # File hub: the installed copy under /usr/local/lib, plus its data root.
+  install -d -m 0750 -o "$OPERATOR" -g "$OPERATOR" "$FILES_ROOT"
+  install -m 0755 -o root -g root "$DEV_DIR/dnshub-files.py" "$FILES"
+  ok "dnshub-files.py -> $FILES (root:$FILES_ROOT)"
+
+  # Private DNS front (DoT :853 + DoH :443). Own CA + server cert, generated
+  # once, valid for the LAN IP, the VPN IP and the .home names.
+  install -d -m 0750 -o root -g dnshub "$CERT_DIR"
+  if [ ! -f "$CERT_DIR/ca.crt" ] || [ ! -f "$CERT_DIR/server.crt" ]; then
+    umask 077
+    openssl genrsa -out "$CERT_DIR/ca.key" 2048 2>/dev/null
+    # The CA MUST carry basicConstraints CA:TRUE + keyCertSign: Python 3.14
+    # refuses to chain a CA that lacks these ("CA cert does not include key
+    # usage extension"), which would make DoT/DoH fail on distros with a
+    # current OpenSSL/OpenSSL's ssl module.
+    openssl req -x509 -new -key "$CERT_DIR/ca.key" -days 3650 -sha256 \
+      -subj "/CN=dnshub home CA" \
+      -addext "basicConstraints=critical,CA:TRUE" \
+      -addext "keyUsage=critical,keyCertSign,cRLSign" \
+      -out "$CERT_DIR/ca.crt" 2>/dev/null
+    openssl genrsa -out "$CERT_DIR/server.key" 2048 2>/dev/null
+    openssl req -new -key "$CERT_DIR/server.key" -subj "/CN=dns.home" \
+      -out /tmp/dnshub-server.csr 2>/dev/null
+    cat > /tmp/dnshub-san.cnf <<EOF
+subjectAltName=DNS:dns.home,DNS:panel.home,DNS:files.home,DNS:mtt-server,DNS:localhost,IP:127.0.0.1,IP:${DNSHUB_LAN_IP:-192.168.1.12},IP:10.8.0.1
+basicConstraints=critical,CA:FALSE
+keyUsage=digitalSignature,keyEncipherment
+extendedKeyUsage=serverAuth
+EOF
+    openssl x509 -req -in /tmp/dnshub-server.csr -CA "$CERT_DIR/ca.crt" \
+      -CAkey "$CERT_DIR/ca.key" -CAcreateserial -days 1825 -sha256 \
+      -extfile /tmp/dnshub-san.cnf -out "$CERT_DIR/server.crt" 2>/dev/null
+    rm -f /tmp/dnshub-server.csr /tmp/dnshub-san.cnf
+    chown root:dnshub "$CERT_DIR/ca.key" "$CERT_DIR/server.key"
+    chmod 0640 "$CERT_DIR/ca.key" "$CERT_DIR/server.key"
+    chmod 0644 "$CERT_DIR/ca.crt" "$CERT_DIR/server.crt"
+    ok "privacy certs generated (CN=dns.home, CA 10y, server EKU serverAuth)"
+  else
+    ok "privacy certs already present"
+  fi
+  install -m 0755 -o root -g root "$DEV_DIR/dnshub-privacy.py" "$PRIVACY"
+  ok "dnshub-privacy.py -> $PRIVACY"
+
+  # The drop-in. The script is named without arguments, so sudo will accept any
+  # arguments and pass them through; dnshub-ctl validates them itself against a
+  # fixed table. visudo -c runs before the file is trusted.
+  cat > /tmp/dnshub.sudoers <<EOF
+# dnshub control plane. The web UI runs as $OPERATOR and can call exactly one
+# program. dnshub-ctl matches the unit name against a hardcoded table, so the
+# arguments a caller may pass do not widen this at all.
+Defaults!$CTL env_keep+=DNSHUB_DEV_DIR
+$OPERATOR ALL=(root) NOPASSWD: $CTL
+# The human operator also runs the master (dnshub on/off/status/...) without a
+# password. /usr/local/bin/dnshub is root-owned and read-only, and the web UI
+# still only ever gets dnshub-ctl - this grant is for the box owner.
+$OPERATOR ALL=(root) NOPASSWD: /usr/local/bin/dnshub
+EOF
+  if ! visudo -cf /tmp/dnshub.sudoers >/dev/null 2>&1; then
+    bad "the sudoers fragment is not valid; refusing to install it"
+    cat /tmp/dnshub.sudoers
+    return 1
+  fi
+  install -m 0440 -o root -g root /tmp/dnshub.sudoers "$SUDOERS"
+  rm -f /tmp/dnshub.sudoers
+  ok "sudoers drop-in -> $SUDOERS (validated with visudo -c)"
+
+  # Control panel unit.
+  cat > /tmp/dnshub-control.service <<EOF
+[Unit]
+Description=dnshub control panel (services, logs, blocklist)
+Documentation=file://$DEV_DIR/README.md
+After=network-online.target dnshub-resolver.service
+Wants=dnshub-resolver.service
+
+[Service]
+Type=exec
+User=$OPERATOR
+Group=$OPERATOR
+WorkingDirectory=$DEV_DIR
+Environment=DNSHUB_CTL_PORT=8081
+Environment=DNSHUB_CTL_BIND=0.0.0.0
+Environment=DNSHUB_DEV_DIR=$DEV_DIR
+ExecStart=/usr/bin/python3 $CONTROL
+Restart=on-failure
+RestartSec=5
+# The UI needs to call one sudoers entry. It does NOT need to write anything
+# outside its own directory.
+#
+# NoNewPrivileges is deliberately NOT set here. It is a good default, but this
+# service's entire reason for existing is to make one sudo call, and
+# NoNewPrivileges stops sudo from working at all - every action would fail with
+# a bare "sudo: effective uid is not 0" and the switches would look dead.
+# ProtectSystem=full (read-only /usr, /boot, /etc) is the right level instead:
+# it stops the UI rewriting the very helpers it depends on, while leaving /run
+# writable so sudo's session timestamp cache still works.
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=$DEV_DIR
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+EOF
+  install -m 0644 -o root -g root /tmp/dnshub-control.service \
+    /etc/systemd/system/dnshub-control.service
+  rm -f /tmp/dnshub-control.service
+  ok "dnshub-control.service"
+
+  # File hub service. ProtectSystem=strict means it may only write inside its
+  # own data root.
+  cat > /tmp/dnshub-files.service <<EOF
+[Unit]
+Description=dnshub file hub (browse, upload, download files over HTTP :8082)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=$OPERATOR
+Group=$OPERATOR
+Environment=DNSHUB_FILES_ROOT=$FILES_ROOT
+ExecStart=/usr/bin/python3 $FILES
+Restart=on-failure
+RestartSec=5
+ProtectSystem=strict
+ReadWritePaths=$FILES_ROOT
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+EOF
+  install -m 0644 -o root -g root /tmp/dnshub-files.service \
+    /etc/systemd/system/dnshub-files.service
+  rm -f /tmp/dnshub-files.service
+  ok "dnshub-files.service"
+
+  # Private DNS: DoT/DoH front for the resolver. TLS on privileged ports, so
+  # the unit carries CAP_NET_BIND_SERVICE; the key is group-readable by dnshub
+  # and the service runs as the operator plus that supplementary group.
+  cat > /tmp/dnshub-privacy.service <<EOF
+[Unit]
+Description=dnshub local encrypted DNS (DoT :853, DoH :443)
+After=dnshub-resolver.service
+Wants=dnshub-resolver.service
+
+[Service]
+Type=exec
+User=$OPERATOR
+Group=$OPERATOR
+SupplementaryGroups=dnshub
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+Environment=DNSHUB_PRIV_CERT=$CERT_DIR/server.crt
+Environment=DNSHUB_PRIV_KEY=$CERT_DIR/server.key
+Environment=DNSHUB_PRIV_CA=$CERT_DIR/ca.crt
+ExecStart=/usr/bin/python3 $PRIVACY
+Restart=on-failure
+RestartSec=5
+ProtectSystem=strict
+ReadOnlyPaths=$CERT_DIR
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+EOF
+  install -m 0644 -o root -g root /tmp/dnshub-privacy.service \
+    /etc/systemd/system/dnshub-privacy.service
+  rm -f /tmp/dnshub-privacy.service
+  ok "dnshub-privacy.service"
+
+  # The resolver: serves :53 and the :8080 live dashboard. It runs as the
+  # operator; CAP_NET_BIND_SERVICE is the only root privilege it takes, purely
+  # to bind the privileged 53 port. Abuse lines go to /var/log/dnshub/abuse.log
+  # so the fail2ban jail (DNS flood protection) can watch them.
+  cat > /tmp/dnshub-resolver.service <<EOF
+[Unit]
+Description=dnshub DNS resolver (ad-blocking :53, dashboard :8080)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=$OPERATOR
+Group=$OPERATOR
+WorkingDirectory=$DEV_DIR
+Environment=DNSHUB_ABUSE_LOG=/var/log/dnshub/abuse.log
+Environment=DNSHUB_LAN_IP=$DNSHUB_LAN_IP
+Environment=DNSHUB_DASH_PORT=8080
+ExecStart=/usr/bin/python3 $DEV_DIR/dns-server.py
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+Restart=on-failure
+RestartSec=5
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=$DEV_DIR /var/log/dnshub
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+EOF
+  install -m 0644 -o root -g root /tmp/dnshub-resolver.service \
+    /etc/systemd/system/dnshub-resolver.service
+  rm -f /tmp/dnshub-resolver.service
+  ok "dnshub-resolver.service (:53, dashboard :8080)"
+
+  # Blocklist refresher as a real service, not just a cron line, so that the
+  # switch in the web UI means something: stopping it really does stop the
+  # refresh. Type=exec with --loop returns instantly, so the switch is
+  # immediate rather than blocking for the length of a compile.
+  cat > /tmp/dnshub-blocklist.service <<EOF
+[Unit]
+Description=dnshub blocklist refresher (fetch, merge, compile, hot-reload)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=$OPERATOR
+Group=$OPERATOR
+WorkingDirectory=$DEV_DIR
+ExecStart=/usr/bin/python3 $DEV_DIR/blocklist-updater.py --loop 43200 --profile $PROFILE
+Restart=on-failure
+RestartSec=60
+# A compile peaks around 100 MiB and writes ~1 GiB of scratch under
+# $DEV_DIR/blocklists. Everything else it touches is read-only.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ReadWritePaths=$DEV_DIR
+StandardOutput=append:$DEV_DIR/blocklist-update.log
+StandardError=append:$DEV_DIR/blocklist-update.log
+
+[Install]
+WantedBy=multi-user.target
+EOF
+  install -m 0644 -o root -g root /tmp/dnshub-blocklist.service \
+    /etc/systemd/system/dnshub-blocklist.service
+  rm -f /tmp/dnshub-blocklist.service
+  ok "dnshub-blocklist.service (rebuilds every 12h)"
+
+  # The cron entry is now redundant and would double the upstream traffic.
+  if [ -f /etc/cron.d/dnshub-blocklist ]; then
+    rm -f /etc/cron.d/dnshub-blocklist
+    say "removed the old cron entry; the service owns the schedule now"
+  fi
+
+  install -d -m 0755 -o "$OPERATOR" -g "$OPERATOR" /var/log/dnshub
+  install -d -m 0755 -o "$OPERATOR" -g "$OPERATOR" "$DEV_DIR/blocklists"
+  # A previous root-run install (sudo bash setup.sh era) leaves root-owned
+  # runtime artifacts behind; hand the runtime bits back to the operator so
+  # the mostfa-run services can write them again.
+  chown -R "$OPERATOR:$OPERATOR" "$DEV_DIR/blocklists" \
+    "$DEV_DIR/blocklist-update.log" "$DEV_DIR/__pycache__" 2>/dev/null || true
+  # fail2ban refuses to start while a jail's log file is missing, so make sure
+  # the resolver's abuse log exists (empty is fine) before it can be started.
+  if [ ! -f /var/log/dnshub/abuse.log ]; then
+    : > /var/log/dnshub/abuse.log
+    chown "$OPERATOR:$OPERATOR" /var/log/dnshub/abuse.log
+  fi
+
+  # WireGuard safety guard: an independent oneshot that runs after
+  # network-online and tears wg0 down + disables it ONLY if the LAN ever gets
+  # routed into the tunnel again. On by default - it is pure safety.
+  if [ -f "$DEV_DIR/dnshub-wg-guard" ] && [ -f "$DEV_DIR/dnshub-wg-guard.service" ]; then
+    install -m 0755 -o root -g root "$DEV_DIR/dnshub-wg-guard" \
+      /usr/local/sbin/dnshub-wg-guard
+    install -m 0644 -o root -g root "$DEV_DIR/dnshub-wg-guard.service" \
+      /etc/systemd/system/dnshub-wg-guard.service
+    systemctl enable dnshub-wg-guard.service >/dev/null 2>&1 || true
+    systemctl start dnshub-wg-guard.service >/dev/null 2>&1 || true
+    ok "dnshub-wg-guard.service (LAN safety net, always on)"
+  else
+    warn "dnshub-wg-guard not found in $DEV_DIR - skipping (LAN safety net absent)"
+  fi
+
+  systemctl daemon-reload
+  ok "systemd units reloaded"
+  say "run 'dnshub on' to start everything"
+}
+
+# ---------------------------------------------------------------------------
+# on / off
+# ---------------------------------------------------------------------------
+cmd_on() {
+  say "starting the whole dnshub hub"
+  # Stale intermediates from an interrupted compile would sit next to the real
+  # blob; the updater cleans up after itself normally, so sweep any leftovers.
+  rm -f "$DEV_DIR"/blocklist.compiled.*.tmp* 2>/dev/null || true
+  if [ ! -x "$CTL" ]; then
+    warn "no control helper yet; installing"
+    cmd_install
+  fi
+  # Optional extras, only if the package is actually present. Enabling a unit
+  # whose binary was never installed produces a failed unit and a red card.
+  local extras=()
+  have wg-quick && have ip && extras+=(wg-quick@wg0)
+  have netdata && extras+=(netdata)
+  # Dependents first, resolver last so the LAN's DNS keeps answering as long
+  # as possible while the rest come up.
+  local units=("${UNITS_ON[@]}" "${extras[@]}" dnshub-resolver)
+
+  for u in "${units[@]}"; do
+    if systemctl cat "$u" >/dev/null 2>&1; then
+      # If the unit is already running with older code, a bare `enable --now`
+      # will not pick up the new files on disk - it would silently keep the
+      # stale process. Restart when active so `dnshub on` always reflects
+      # the current code, then make sure it is enabled for the next boot.
+      if [ "$(systemctl is-active "$u" 2>/dev/null)" = "active" ]; then
+        systemctl restart "$u" >/dev/null 2>&1 || true
+      else
+        systemctl start "$u" >/dev/null 2>&1 || true
+      fi
+      systemctl enable "$u" >/dev/null 2>&1 || true
+      st=$(systemctl is-active "$u" 2>/dev/null)
+      if [ "$st" = "active" ]; then ok "$u active"
+      else warn "$u is $st  (journalctl -u $u -n 20)"; fi
+    else
+      warn "$u is not installed on this host, skipping"
+    fi
+  done
+
+  # unbound is a container, not a unit: `on` means everything, so start it
+  # through docker as well.
+  if have docker && docker ps -a --format '{{.Names}}' 2>/dev/null | grep -qx dnshub-unbound; then
+    docker start dnshub-unbound >/dev/null 2>&1 || true
+    st=$(docker inspect -f '{{.State.Running}}' dnshub-unbound 2>/dev/null)
+    if [ "$st" = "true" ]; then ok "dnshub-unbound container running"
+    else warn "unbound container is not running"; fi
+  fi
+
+  # If WireGuard is actually up, let the safety guard have the first look: it
+  # will tear the tunnel down rather than let the LAN route through it.
+  if [ -x /usr/local/sbin/dnshub-wg-guard ] && ip -br link show wg0 >/dev/null 2>&1; then
+    /usr/local/sbin/dnshub-wg-guard check \
+      || warn "the wg guard objected - see /var/log/dnshub/wg-guard.log"
+  fi
+
+  # Wait for the resolver to actually answer before declaring success.
+  for i in $(seq 1 15); do
+    if dig +time=2 +tries=1 +short @127.0.0.1 example.com A >/dev/null 2>&1 && \
+       [ -n "$(dig +time=2 +tries=1 +short @127.0.0.1 example.com A 2>/dev/null)" ]; then
+      ok "the resolver is answering"
+      break
+    fi
+    sleep 1
+  done
+
+  local ip; ip=$(hostname -I 2>/dev/null | awk '{print $1}')
+  say "dnshub $VERSION · by Mostfa"
+  say "control panel:  http://$ip:8081"
+  say "resolver UI:   http://$ip:8080"
+  say "file hub:      http://$ip:8082"
+  say "private DNS:   DoT dns.home:853 / DoH dns.home:443 (CA: ${CERT_DIR:-/etc/dnshub/certs}/ca.crt)"
+  say "auth:          none - LAN-only box, panels are open"
+}
+
+cmd_off() {
+  say "turning the whole hub off (safe order; ssh and the box stay up)"
+  # Stop order: whichever services others depend on comes last, and the
+  # resolver - the reason the box exists - stops only after its consumers.
+  # ssh is deliberately not in the set, so //this shell// keeps working even
+  # when everything else is down.
+  local failed=0
+  for u in "${UNITS_OFF[@]}"; do
+    if systemctl cat "$u" >/dev/null 2>&1; then
+      systemctl stop "$u" >/dev/null 2>&1 || failed=$((failed + 1))
+      systemctl disable "$u" >/dev/null 2>&1 || true
+      st=$(systemctl is-active "$u" 2>/dev/null)
+      case "$st" in
+        inactive) ok "$u stopped" ;;
+        failed)   warn "$u ended failed (still safe; will restart cleanly on 'dnshub on')" ;;
+        *)        warn "$u still $st" ;;
+      esac
+    fi
+  done
+
+  # unbound container.
+  if have docker && docker inspect -f '{{.State.Running}}' dnshub-unbound 2>/dev/null | grep -q true; then
+    docker stop dnshub-unbound >/dev/null 2>&1 && ok "dnshub-unbound container stopped"
+  fi
+
+  # The guard stays enabled even with everything off: it is pure safety and is
+  # a no-op while wg0 is down, so leaving it armed cannot break anything.
+  if [ "$failed" -gt 0 ]; then
+    bad "some services did not stop cleanly; the rest are off. Inspect with"
+    bad "  dnshub status      (what is still running)"
+    bad "  dnshub off         (retry the stop)"
+    bad "  dnshub on          (restore everything as it was)"
+    return 1
+  fi
+  say "hub is off. Everything comes back exactly as before with: dnshub on"
+}
+
+# ---------------------------------------------------------------------------
+# status
+# ---------------------------------------------------------------------------
+cmd_status() {
+  printf '\n\033[1mdnshub services\033[0m\n'
+  printf '  %-24s %-10s %-10s %-18s %s\n' SERVICE STATE ENABLED KIND SINCE
+  # Ask the helper rather than probing systemd directly. The helper knows that
+  # unbound is a container and not a unit, and it is the same source of truth
+  # the web UI uses, so `dnshub status` and the panel can never disagree.
+  if [ -x "$CTL" ]; then
+    for k in resolver blocklist control files privacy fail2ban chrony unbound wireguard netdata; do
+      out=$(sudo -n "$CTL" status "$k" 2>/dev/null)
+      if [ -z "$out" ]; then
+        printf '  \033[2m%-24s %-10s %-10s %-18s %s\033[0m\n' "$k" "?" "?" "no answer" "run: sudo dnshub install"
+        continue
+      fi
+      printf '%s' "$out" | python3 -c '
+import json,sys
+d=json.load(sys.stdin)
+if not d.get("exists"):
+    print("  \033[2m%-24s %-10s %-10s %-18s %s\033[0m" % (
+        d.get("key","?"), "absent", "-", d.get("kind","?"),
+        "not installed on this host"))
+    raise SystemExit
+a=d.get("active","?"); col="32" if a=="active" else "31"
+since=(d.get("since") or "-")
+since=since.replace("Sun ","").replace("Mon ","").replace("Tue ","") \
+         .replace("Wed ","").replace("Thu ","").replace("Fri ","") \
+         .replace("Sat ","")[:17]
+print("  %s%-24s %-10s\033[0m %-10s %-18s %s" % (
+    col, d.get("key","?"), a, str(d.get("enabled","?")),
+    d.get("kind","?"), since))' 2>/dev/null || printf '  %-24s ?\n' "$k"
+    done
+  else
+    warn "$CTL is not installed yet; run: sudo dnshub install"
+  fi
+
+  printf '\n\033[1mmemory\033[0m\n'
+  free -m | awk '/^Mem:/{printf "  %d MiB total, %d MiB used, %d MiB available\n",$2,$3,$7}'
+  printf '  top consumers:\n'
+  ps -eo rss=,comm= --sort=-rss 2>/dev/null | head -6 | awk '{printf "    %7.1f MB  %s\n",$1/1024,$2}'
+
+  printf '\n\033[1mblocklist\033[0m\n'
+  python3 - "$DEV_DIR" <<'PY' 2>/dev/null || warn "no metadata yet"
+import json, os, sys, time
+base = sys.argv[1]
+m = json.loads(open(os.path.join(base, "blocklist.meta.json")).read())
+age = (time.time() - os.stat(os.path.join(base, "blocklist.compiled.bin")).st_mtime) / 3600
+# There is no "source_count" key. The per-source tally is a dict, and a failed
+# fetch is recorded as an empty list rather than as a count, so both of these
+# used to print a bare "?" and "[]" where a number belonged.
+per = m.get("per_source") or {}
+failed = m.get("failed_sources") or []
+stale = m.get("stale_sources") or []
+print(f"  {m['total_domains']:,} domains from {len(per)} sources"
+      f"  (profile: {m.get('profile','?')},"
+      f" categories: {','.join(m.get('categories') or [])})")
+print(f"  built {age:.1f}h ago in {m['elapsed_sec']}s, peak {m['peak_rss_mb']:.0f} MiB RSS")
+print(f"  {m['allowlist_size']} allowlist exemptions, "
+      f"{len(failed)} failed, {len(stale)} stale")
+if failed:
+    print(f"  FAILED SOURCES: {', '.join(str(f) for f in failed)}")
+PY
+
+  printf '\n\033[1mdoes it actually work?\033[0m\n'
+  for d in example.com google.com youtube.com facebook.com; do
+    r=$(dig +time=4 +tries=1 +short @127.0.0.1 "$d" A 2>/dev/null | head -1)
+    [ -n "$r" ] && printf '  \033[32mok\033[0m   %-20s -> %s\n' "$d" "$r" \
+                 || printf '  \033[31mXX\033[0m   %-20s -> no answer\n' "$d"
+  done
+  # adservice.google.com is deliberately NOT in this list. The only rules that
+  # mention it are URL path rules scoped to a single site
+  # (||adservice.google.com/adsid/integrator.js$domain=<one site>), so it is a
+  # request, not a host, and DNS cannot block one request on one site. Blocking
+  # the host outright would break Google's ad SDK everywhere while stopping no
+  # ad that the parser fix did not already handle.
+  for d in doubleclick.net googletagmanager.com pagead2.googlesyndication.com; do
+    r=$(dig +time=4 +tries=1 +short @127.0.0.1 "$d" A 2>/dev/null | head -1)
+    [ -z "$r" ] && printf '  \033[32mok\033[0m   %-20s blocked\n' "$d" \
+                 || printf '  \033[31mXX\033[0m   %-20s LEAKING -> %s\n' "$d" "$r"
+  done
+
+  printf '\n\033[1mclients on this network\033[0m\n'
+  if command -v ip >/dev/null; then
+    ip neigh show 2>/dev/null | awk '$1!~/^fe80/ {print "  "$1"  "$5}' | sort -u | head -12
+  fi
+  echo
+}
+
+# ---------------------------------------------------------------------------
+# logs / doctor / blocklist / dns / selftest
+# ---------------------------------------------------------------------------
+cmd_logs() {
+  local key="${1:-resolver}"
+  shift 2>/dev/null || true
+  case "$key" in
+    service:*) unit="${key#service:}" ;;
+    *)        unit="$key" ;;
+  esac
+  if [ ! -x "$CTL" ]; then bad "no control helper yet; run 'dnshub install'"; return 1; fi
+  exec sudo -n "$CTL" logs "$unit" "${1:-service}"
+}
+
+cmd_doctor() {
+  if [ ! -x "$CTL" ]; then
+    # Fall back to a read-only version of the same checks so `doctor` works
+    # before `install` has ever been run.
+    bad "dnshub-ctl is not installed; run 'sudo dnshub install'"
+    return 1
+  fi
+  sudo -n "$CTL" doctor | python3 -c '
+import json,sys
+d=json.load(sys.stdin)
+for c in d.get("checks",[]):
+    m={True:"\033[32mOK  \033[0m",False:"\033[31mFAIL\033[0m"}.get(c["ok"],"\033[33m????\033[0m")
+    print(f"  {m} {c[\"name\"]:<22} {c[\"detail\"]}")
+    if c.get("fix"): print(f"         \033[2m-> {c[\"fix\"]}\033[0m")
+bad=[c for c in d.get("checks",[]) if c["ok"] is False]
+print()
+print(f"  {len(d.get(\"checks\",[]))} checks, {len(bad)} needing attention")
+sys.exit(1 if bad else 0)'
+}
+
+cmd_blocklist() {
+  case "${1:-status}" in
+    refresh)
+      cd "$DEV_DIR" || return 1
+      flock "$DEV_DIR/.blocklist.lock" -c \
+        "python3 ./blocklist-updater.py --once --profile $PROFILE" \
+        2>&1 | tail -25
+      say "the resolver reloads within about 30s, with no restart"
+      ;;
+    stats)   cd "$DEV_DIR" && python3 ./blocklist-updater.py --stats ;;
+    sources) cd "$DEV_DIR" && python3 ./blocklist-updater.py --sources ;;
+    test)    shift; cd "$DEV_DIR" && python3 ./blocklist-updater.py --test "$@" ;;
+    *)       say "usage: dnshub blocklist {refresh|stats|sources|test <domain>...}" ; return 2 ;;
+  esac
+}
+
+cmd_dns() {
+  [ $# -gt 0 ] || { say "usage: dnshub dns <name> [type]"; return 2; }
+  local name="$1" type="${2:-A}"
+  local r; r=$(dig +time=5 +tries=1 +short @127.0.0.1 "$name" "$type" 2>/dev/null)
+  if [ -n "$r" ]; then
+    printf '  \033[32mresolves\033[0m  %s %s\n' "$name" "$type"
+    echo "$r" | sed 's/^/           /'
+  else
+    printf '  \033[33mno answer\033[0m  %s %s\n' "$name" "$type"
+    cd "$DEV_DIR" 2>/dev/null && python3 ./blocklist-updater.py --test "$name" 2>/dev/null \
+      | sed 's/^/           /'
+  fi
+}
+
+cmd_selftest() {
+  cd "$DEV_DIR" || return 1
+  python3 ./dns-server.py --selftest
+}
+
+# Every action above the pure-info verbs escalates to root through sudo and
+# STAYS root for the whole run. A user-level `dnshub on` must never dribble
+# per-action polkit prompts onto the console; on boxes with passwordless sudo
+# this layer is completely silent, elsewhere you answer exactly one password.
+case "${1:-}" in
+  version|-V|""|-h|--help|help|selftest) : ;;
+  *) need_root "$@" ;;
+esac
+
+case "${1:-}" in
+  on|start)    shift; cmd_on "$@" ;;
+  off|stop)    shift; cmd_off "$@" ;;
+  restart)     shift; cmd_off "$@"; cmd_on "$@" ;;
+  status|st)   shift; cmd_status "$@" ;;
+  logs)        shift; cmd_logs "$@" ;;
+  doctor)      shift; cmd_doctor "$@" ;;
+  blocklist)   shift; cmd_blocklist "$@" ;;
+  dns|query)   shift; cmd_dns "$@" ;;
+  selftest)    shift; cmd_selftest "$@" ;;
+  version|-V)  say "dnshub $VERSION · by Mostfa" ;;
+  install)     shift; cmd_install "$@" ;;
+  ""|-h|--help|help)
+    sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//'
+    ;;
+  *) bad "unknown command '$1'. Try: dnshub help" ;;
+esac

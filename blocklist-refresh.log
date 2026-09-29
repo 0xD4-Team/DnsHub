@@ -1,0 +1,37 @@
+[updater] ====================================================================
+[updater] update start  profile=daily  sources=32
+[updater] expected entries (pre-dedup, from registry): 4,318,610
+[updater]   ok   HaGeZi-Ultimate: 286,404 domains in 14s
+[updater]   ok   OISD-Big: 244,459 domains in 16s
+[updater]   ok   AdGuard-SDNS: 175,708 domains in 6s
+[updater]   ok   StevenBlack: 74,758 domains in 3s
+[updater]   ok   1Hosts-Xtra: 1,115,907 domains in 47s
+[updater]   ok   BlocklistProject-ads: 235,842 domains in 11s
+[updater]   ok   HaGeZi-PopupAds: 50,712 domains in 2s
+[updater]   ok   HaGeZi-UrlShortener: 9,980 domains in 1s
+[updater]   ok   AdGuard-Base: 60,003 domains in 7s
+[updater]   ok   AdGuard-Mobile: 1,085 domains in 2s
+[updater]   ok   anudeep-adservers: 42,343 domains in 3s
+[updater]   ok   MVPS: 8,728 domains in 2s
+[updater]   ok   PeterLowe-yoyo: 3,550 domains in 0s
+[updater]   ok   BLP-crypto: 1,274 domains in 0s
+[updater]   ok   notracking: 275,067 domains in 23s
+[updater]   ok   BLP-tracking: 143,866 domains in 6s
+[updater]   ok   HaGeZi-DoH: 3,334 domains in 1s
+[updater]   ok   HaGeZi-DynDNS: 1,538 domains in 0s
+[updater]   ok   HaGeZi-NoSafeSearch: 205 domains in 0s
+[updater]   ok   HaGeZi-Hoster: 1,238 domains in 1s
+[updater]   ok   Firebog-EasyPrivacy: 43,136 domains in 2s
+[updater]   ok   Ultimate-Hosts-Blacklist: 153,774 domains in 10s
+[updater]   ok   PiHole-SmartTV: 497 domains in 1s
+[updater]   ok   BLP-smart-tv: 77 domains in 1s
+[updater]   ok   BLP-abuse: 434,677 domains in 20s
+[updater]   ok   BLP-fraud: 285,023 domains in 15s
+[updater]   ok   BLP-phishing: 190,089 domains in 12s
+[updater]   ok   Phishing-Army-X: 149,527 domains in 4s
+[updater]   ok   HaGeZi-Fake: 17,414 domains in 2s
+[updater]   ok   AntiMalware-Hosts: 11,760 domains in 1s
+[updater]   ok   BLP-scam: 8,527 domains in 1s
+[updater]   ok   URLhaus: 381 domains in 0s
+[updater] force-blocked 3 domain(s) that the allowlist would otherwise have protected
+[updater] deduplicated: 3,057,410 unique -> 3,041,388 after exemptions
